@@ -150,3 +150,7 @@ async def main():
         bot_logger.error(f"Fatal error: {e}", exc_info=e)
     finally:
         await bot.close()
+
+# Entry point to run the async main function
+if __name__ == "__main__":
+    asyncio.run(main())
