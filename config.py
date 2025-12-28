@@ -1,7 +1,4 @@
 import os
-from dotenv import load_dotenv
-
-load_dotenv()
 
 class Config:
     # Bot Configuration
@@ -30,4 +27,5 @@ class Config:
         """Validate required configuration"""
         if not cls.TOKEN:
             raise ValueError("TOKEN is required in environment variables")
+
         return True
