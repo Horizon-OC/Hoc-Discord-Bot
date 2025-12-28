@@ -4,6 +4,7 @@ import asyncio
 import sys
 import webserver
 from pathlib import Path
+import random
 
 from config import Config
 from utils.database import Database
@@ -124,6 +125,34 @@ class ModBot(commands.Bot):
         bot_logger.info("Bot shutting down")
         await super().close()
 
+async def start_bot_with_retry(bot, max_retries=5):
+    """Start bot with exponential backoff retry logic for rate limits"""
+    for attempt in range(max_retries):
+        try:
+            await bot.start(Config.TOKEN)
+            break
+        except discord.HTTPException as e:
+            if e.status == 429:  # Rate limited
+                if attempt < max_retries - 1:
+                    # Exponential backoff with jitter
+                    wait_time = (2 ** attempt) + random.uniform(0, 1)
+                    bot_logger.warning(
+                        f"Rate limited by Discord/Cloudflare (attempt {attempt + 1}/{max_retries}). "
+                        f"Retrying in {wait_time:.1f} seconds..."
+                    )
+                    await asyncio.sleep(wait_time)
+                else:
+                    bot_logger.error(
+                        "Failed to connect after multiple attempts due to rate limiting. "
+                        "This is likely due to Render's shared IP being blocked by Cloudflare."
+                    )
+                    raise
+            else:
+                raise
+        except Exception as e:
+            bot_logger.error(f"Unexpected error during bot start: {e}", exc_info=e)
+            raise
+
 async def main():
     """Main entry point"""
     # Validate configuration
@@ -143,7 +172,7 @@ async def main():
     globals()['bot'] = bot
     
     try:
-        await bot.start(Config.TOKEN)
+        await start_bot_with_retry(bot)
     except KeyboardInterrupt:
         bot_logger.info("Received keyboard interrupt")
     except Exception as e:
@@ -151,6 +180,5 @@ async def main():
     finally:
         await bot.close()
 
-# Entry point to run the async main function
 if __name__ == "__main__":
     asyncio.run(main())
