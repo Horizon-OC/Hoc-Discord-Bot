@@ -2,7 +2,7 @@ import os
 
 class Config:
     # Bot Configuration
-    TOKEN = os.environ('Token')
+    TOKEN = os.getenv('TOKEN') 
     PREFIX = os.getenv('PREFIX', '?')
     
     # Database Configuration
@@ -27,5 +27,4 @@ class Config:
         """Validate required configuration"""
         if not cls.TOKEN:
             raise ValueError("TOKEN is required in environment variables")
-
         return True
