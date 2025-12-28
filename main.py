@@ -133,7 +133,8 @@ async def main():
         bot_logger.error(f"Configuration error: {e}")
         sys.exit(1)
 
-webserver.keep_alive()    
+    # Start Flask keep-alive
+    webserver.keep_alive()    
 
     # Create and run bot
     bot = ModBot()
@@ -149,11 +150,3 @@ webserver.keep_alive()
         bot_logger.error(f"Fatal error: {e}", exc_info=e)
     finally:
         await bot.close()
-
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        bot_logger.info("Bot stopped by user")
-    except Exception as e:
-        bot_logger.error(f"Failed to start bot: {e}", exc_info=e)
