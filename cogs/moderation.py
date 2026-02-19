@@ -471,11 +471,11 @@ class Moderation(commands.Cog):
     @commands.hybrid_command(name="delete", description="Delete multiple messages")
     @is_moderator()
     @moderator_check()
-    @app_commands.describe(amount="Number of messages to delete (1-100)")
+    @app_commands.describe(amount="Number of messages to delete (1-50)")
     async def delete(self, ctx: commands.Context, amount: int):
         """Delete multiple messages"""
-        if amount < 1 or amount > 100:
-            await ctx.send("❌ Amount must be between 1 and 100.", ephemeral=True)
+        if amount < 1 or amount > 50:
+            await ctx.send("❌ Amount must be between 1 and 50.", ephemeral=True)
             return
         
         try:
@@ -598,4 +598,5 @@ class Moderation(commands.Cog):
                 pass
 
 async def setup(bot):
+
     await bot.add_cog(Moderation(bot))
