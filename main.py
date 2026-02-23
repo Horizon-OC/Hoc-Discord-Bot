@@ -6,6 +6,7 @@ import webserver
 from pathlib import Path
 import random
 
+
 from config import Config
 from utils.database import Database
 from utils.cache import Cache
@@ -34,7 +35,8 @@ class ModBot(commands.Bot):
             'cogs.errors',
             'cogs.utility',
             'cogs.game',
-            'cogs.events'
+            'cogs.events',
+            'cogs.starboard',   # ← Starboard & Clownboard
         ]
     
     async def get_prefix(self, message: discord.Message):
