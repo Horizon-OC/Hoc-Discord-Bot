@@ -27,9 +27,27 @@ class Database:
                     log_mutes INTEGER DEFAULT 1,
                     log_message_deletes INTEGER DEFAULT 0,
                     log_message_edits INTEGER DEFAULT 0,
+                    starboard_channel_id INTEGER DEFAULT NULL,
+                    starboard_threshold INTEGER DEFAULT 3,
+                    clownboard_channel_id INTEGER DEFAULT NULL,
+                    clownboard_threshold INTEGER DEFAULT 3,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # Migrate existing tables: add starboard/clownboard columns if they don't exist yet
+            for col, default in [
+                ("starboard_channel_id", "NULL"),
+                ("starboard_threshold",  "3"),
+                ("clownboard_channel_id", "NULL"),
+                ("clownboard_threshold",  "3"),
+            ]:
+                try:
+                    await db.execute(
+                        f"ALTER TABLE guild_config ADD COLUMN {col} INTEGER DEFAULT {default}"
+                    )
+                except Exception:
+                    pass  # Column already exists — that's fine
             
             await db.execute("""
                 CREATE TABLE IF NOT EXISTS actions (
@@ -68,7 +86,7 @@ class Database:
                 )
             """)
             
-            # Create indexes for better performance
+            # Indexes
             await db.execute("""
                 CREATE INDEX IF NOT EXISTS idx_actions_user 
                 ON actions(guild_id, user_id)
@@ -82,6 +100,10 @@ class Database:
             await db.commit()
             bot_logger.info("Database initialized successfully")
     
+    # ──────────────────────────────────────────────────────────────────
+    # Guild config
+    # ──────────────────────────────────────────────────────────────────
+
     async def get_guild_config(self, guild_id: int) -> Optional[dict]:
         """Get guild configuration"""
         async with aiosqlite.connect(self.db_path) as db:
@@ -134,7 +156,49 @@ class Database:
                 ON CONFLICT(guild_id) DO UPDATE SET {set_clause}
             """, [guild_id] + list(updates.values()) + list(updates.values()))
             await db.commit()
-    
+
+    # ──────────────────────────────────────────────────────────────────
+    # Starboard / Clownboard
+    # ──────────────────────────────────────────────────────────────────
+
+    async def set_starboard_channel(
+        self, guild_id: int, channel_id: Optional[int], threshold: int = 3
+    ):
+        """Set (or clear) the starboard channel and threshold for a guild."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO guild_config (guild_id, starboard_channel_id, starboard_threshold)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    starboard_channel_id = excluded.starboard_channel_id,
+                    starboard_threshold  = excluded.starboard_threshold
+                """,
+                (guild_id, channel_id, threshold),
+            )
+            await db.commit()
+
+    async def set_clownboard_channel(
+        self, guild_id: int, channel_id: Optional[int], threshold: int = 3
+    ):
+        """Set (or clear) the clownboard channel and threshold for a guild."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute(
+                """
+                INSERT INTO guild_config (guild_id, clownboard_channel_id, clownboard_threshold)
+                VALUES (?, ?, ?)
+                ON CONFLICT(guild_id) DO UPDATE SET
+                    clownboard_channel_id = excluded.clownboard_channel_id,
+                    clownboard_threshold  = excluded.clownboard_threshold
+                """,
+                (guild_id, channel_id, threshold),
+            )
+            await db.commit()
+
+    # ──────────────────────────────────────────────────────────────────
+    # Moderation actions & warnings
+    # ──────────────────────────────────────────────────────────────────
+
     async def log_action(self, guild_id: int, user_id: int, moderator_id: int,
                         action: str, reason: Optional[str] = None):
         """Log a moderation action"""
