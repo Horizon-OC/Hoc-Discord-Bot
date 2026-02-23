@@ -116,21 +116,14 @@ class Utility(commands.Cog):
     @moderator_check()
     async def botstats(self, ctx: commands.Context):
         """Show bot statistics and resource usage"""
-        # Get process info
         process = psutil.Process(os.getpid())
         
-        # Memory usage
         memory_info = process.memory_info()
         memory_mb = memory_info.rss / 1024 / 1024
-        
-        # CPU usage
         cpu_percent = process.cpu_percent(interval=1)
+        total_memory = psutil.virtual_memory().total / 1024 / 1024 / 1024
+        available_memory = psutil.virtual_memory().available / 1024 / 1024 / 1024
         
-        # System info
-        total_memory = psutil.virtual_memory().total / 1024 / 1024 / 1024  # GB
-        available_memory = psutil.virtual_memory().available / 1024 / 1024 / 1024  # GB
-        
-        # Bot uptime
         import time
         uptime_seconds = int(time.time() - process.create_time())
         days, remainder = divmod(uptime_seconds, 86400)
@@ -143,44 +136,23 @@ class Utility(commands.Cog):
             timestamp=datetime.utcnow()
         )
         
-        # Bot info
         embed.add_field(
             name="Bot Info",
             value=f"**Guilds:** {len(self.bot.guilds)}\n**Users:** {len(self.bot.users)}\n**Commands:** {len(self.bot.commands)}",
             inline=True
         )
-        
-        # Resource usage
         embed.add_field(
             name="Resource Usage",
             value=f"**Memory:** {memory_mb:.2f} MB\n**CPU:** {cpu_percent:.1f}%",
             inline=True
         )
-        
-        # System info
         embed.add_field(
             name="System",
             value=f"**Total RAM:** {total_memory:.1f} GB\n**Available:** {available_memory:.1f} GB",
             inline=True
         )
-        
-        # Uptime
-        uptime_str = f"{days}d {hours}h {minutes}m {seconds}s"
-        embed.add_field(
-            name="Uptime",
-            value=uptime_str,
-            inline=False
-        )
-        
-        # Latency
-        latency = round(self.bot.latency * 1000)
-        embed.add_field(
-            name="Latency",
-            value=f"{latency}ms",
-            inline=True
-        )
-        
-        # Discord.py version
+        embed.add_field(name="Uptime", value=f"{days}d {hours}h {minutes}m {seconds}s", inline=False)
+        embed.add_field(name="Latency", value=f"{round(self.bot.latency * 1000)}ms", inline=True)
         embed.set_footer(text=f"discord.py {discord.__version__}")
         
         await ctx.send(embed=embed)
@@ -212,7 +184,7 @@ class Utility(commands.Cog):
             "**slowmode** - Set slowmode",
             "**lock/unlock** - Lock/unlock channel",
             "**pin/unpin** - Pin/unpin messages",
-            "**botstats** - View bot resource usage"
+            "**botstats** - View bot resource usage",
         ]
         
         # Utility commands
@@ -221,17 +193,28 @@ class Utility(commands.Cog):
             "**userinfo** - View user info",
             "**serverinfo** - View server info",
             "**avatar** - View user avatar",
-            "**help** - Show this message"
+            "**help** - Show this message",
         ]
         
         # Error code commands
         err_commands = [
             "**err** - Look up any Nintendo error code (auto-detects console)",
             "**err2hex** - Convert error to hex",
-            "**hex2err** - Convert hex to error"
+            "**hex2err** - Convert hex to error",
+        ]
+
+        # Starboard / Clownboard commands
+        board_commands = [
+            "**starboard setchannel** `#channel [threshold]` - Set ⭐ board channel",
+            "**starboard disable** - Disable starboard",
+            "**starboard info** - Show starboard config",
+            "**clownboard setchannel** `#channel [threshold]` - Set 🤡 board channel",
+            "**clownboard disable** - Disable clownboard",
+            "**clownboard info** - Show clownboard config",
         ]
         
         embed.add_field(name="🛡️ Moderation", value="\n".join(mod_commands), inline=False)
+        embed.add_field(name="⭐ Starboard & Clownboard", value="\n".join(board_commands), inline=False)
         embed.add_field(name="🔧 Utility", value="\n".join(util_commands), inline=False)
         embed.add_field(name="🎮 Error Codes", value="\n".join(err_commands), inline=False)
         
