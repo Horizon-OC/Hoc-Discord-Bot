@@ -8,16 +8,22 @@ from utils.logger import bot_logger, mod_logger
 from config import Config
 
 STAR_EMOJI = "⭐"
-CLOWN_EMOJI = "🤡"
+SOB_EMOJI = "<:androidcry:1424405864428732526>"   # primary display emoji for headers/embeds
+SOB_EMOJIS = {
+    "😭",
+    "<:androidcry:1424405864428732526>",
+    "<:3dsob:1452353828438540288>",
+    "<:cyclopesob:1452468956303462440>",
+}
 DEFAULT_THRESHOLD = 3
 
 
 class Starboard(commands.Cog):
-    """Starboard and Clownboard — automatically pin great or cursed messages."""
+    """Starboard and Sobboard — automatically pin great or cursed messages."""
 
     def __init__(self, bot):
         self.bot = bot
-        # In-memory dedup cache: { guild_id: { "star": {src_msg_id: board_msg_id}, "clown": {...} } }
+        # In-memory dedup cache: { guild_id: { "star": {src_msg_id: board_msg_id}, "sob": {...} } }
         self._posted: dict[int, dict[str, dict[int, int]]] = {}
 
     # ──────────────────────────────────────────────────────────────────
@@ -42,8 +48,8 @@ class Starboard(commands.Cog):
                 config.get("starboard_threshold") or DEFAULT_THRESHOLD,
             )
         return (
-            config.get("clownboard_channel_id"),
-            config.get("clownboard_threshold") or DEFAULT_THRESHOLD,
+            config.get("sobboard_channel_id"),
+            config.get("sobboard_threshold") or DEFAULT_THRESHOLD,
         )
 
     # ──────────────────────────────────────────────────────────────────
@@ -52,10 +58,18 @@ class Starboard(commands.Cog):
 
     @staticmethod
     def _count(message: discord.Message, emoji: str) -> int:
+        """Count reactions for a single emoji."""
         for r in message.reactions:
             if str(r.emoji) == emoji:
                 return r.count
         return 0
+
+    @staticmethod
+    def _count_sob(message: discord.Message) -> int:
+        """Sum reactions across all sob emojis."""
+        return sum(
+            r.count for r in message.reactions if str(r.emoji) in SOB_EMOJIS
+        )
 
     # ──────────────────────────────────────────────────────────────────
     # Embed builder
@@ -66,9 +80,9 @@ class Starboard(commands.Cog):
     ) -> tuple[str, discord.Embed]:
         """Return (header_content, embed) for a board post."""
         is_star = board == "star"
-        emoji = STAR_EMOJI if is_star else CLOWN_EMOJI
+        emoji = STAR_EMOJI if is_star else SOB_EMOJI
         color = discord.Color.gold() if is_star else discord.Color.orange()
-        board_name = "Starboard" if is_star else "Clownboard"
+        board_name = "Starboard" if is_star else "Sobboard"
 
         # Content line above the embed (stays visible even on mobile)
         header = f"{emoji} **{count}** | {message.channel.mention}"
@@ -137,7 +151,7 @@ class Starboard(commands.Cog):
         count: int,
         board: str,
     ):
-        emoji = STAR_EMOJI if board == "star" else CLOWN_EMOJI
+        emoji = STAR_EMOJI if board == "star" else SOB_EMOJI
         try:
             board_msg = await board_channel.fetch_message(board_msg_id)
             parts = board_msg.content.split(" | ", 1)
@@ -176,8 +190,10 @@ class Starboard(commands.Cog):
         if message.author.bot:
             return
 
-        emoji = STAR_EMOJI if board == "star" else CLOWN_EMOJI
-        count = self._count(message, emoji)
+        if board == "star":
+            count = self._count(message, STAR_EMOJI)
+        else:
+            count = self._count_sob(message)
 
         board_channel = guild.get_channel(board_channel_id)
         if not isinstance(board_channel, discord.TextChannel):
@@ -209,8 +225,8 @@ class Starboard(commands.Cog):
         emoji = str(payload.emoji)
         if emoji == STAR_EMOJI:
             await self._handle(payload, "star")
-        elif emoji == CLOWN_EMOJI:
-            await self._handle(payload, "clown")
+        elif emoji in SOB_EMOJIS:
+            await self._handle(payload, "sob")
 
     @commands.Cog.listener()
     async def on_raw_reaction_remove(self, payload: discord.RawReactionActionEvent):
@@ -218,9 +234,9 @@ class Starboard(commands.Cog):
         if not payload.guild_id:
             return
         emoji = str(payload.emoji)
-        if emoji not in (STAR_EMOJI, CLOWN_EMOJI):
+        if emoji != STAR_EMOJI and emoji not in SOB_EMOJIS:
             return
-        board = "star" if emoji == STAR_EMOJI else "clown"
+        board = "star" if emoji == STAR_EMOJI else "sob"
 
         guild = self.bot.get_guild(payload.guild_id)
         if not guild:
@@ -243,8 +259,10 @@ class Starboard(commands.Cog):
         except (discord.NotFound, discord.Forbidden):
             return
 
-        reaction_emoji = STAR_EMOJI if board == "star" else CLOWN_EMOJI
-        count = self._count(message, reaction_emoji)
+        if board == "star":
+            count = self._count(message, STAR_EMOJI)
+        else:
+            count = self._count_sob(message)
 
         board_channel = guild.get_channel(board_channel_id)
         if board_channel:
@@ -340,27 +358,27 @@ class Starboard(commands.Cog):
         await ctx.send(embed=embed)
 
     # ──────────────────────────────────────────────────────────────────
-    # Commands — /clownboard
+    # Commands — /sobboard
     # ──────────────────────────────────────────────────────────────────
 
     @commands.hybrid_group(
-        name="clownboard",
-        description="Clownboard configuration",
+        name="sobboard",
+        description="Sobboard configuration",
         invoke_without_command=True,
     )
     @commands.has_permissions(administrator=True)
-    async def clownboard_group(self, ctx: commands.Context):
-        """Clownboard commands"""
+    async def sobboard_group(self, ctx: commands.Context):
+        """Sobboard commands"""
         await ctx.send_help(ctx.command)
 
-    @clownboard_group.command(
+    @sobboard_group.command(
         name="setchannel",
-        description="Set the channel where clowned messages appear",
+        description="Set the channel where sobbed messages appear",
     )
     @commands.has_permissions(administrator=True)
     @app_commands.describe(
-        channel="The channel to post clowned messages in",
-        threshold=f"Number of 🤡 reactions required (default {DEFAULT_THRESHOLD})",
+        channel="The channel to post sobbed messages in",
+        threshold=f"Number of <:androidcry:1424405864428732526> reactions required (default {DEFAULT_THRESHOLD})",
     )
     async def clown_set(
         self,
@@ -369,14 +387,14 @@ class Starboard(commands.Cog):
         threshold: Optional[int] = DEFAULT_THRESHOLD,
     ):
         threshold = max(1, threshold)
-        await self.bot.db.set_clownboard_channel(ctx.guild.id, channel.id, threshold)
+        await self.bot.db.set_sobboard_channel(ctx.guild.id, channel.id, threshold)
         await self.bot.cache.invalidate_guild_config(ctx.guild.id)
 
         embed = discord.Embed(
-            title="🤡 Clownboard Configured",
+            title="<:androidcry:1424405864428732526> Sobboard Configured",
             description=(
                 f"**Channel:** {channel.mention}\n"
-                f"**Threshold:** {threshold} {CLOWN_EMOJI} reaction(s) required"
+                f"**Threshold:** {threshold} {SOB_EMOJI} reaction(s) required"
             ),
             color=discord.Color.orange(),
             timestamp=datetime.utcnow(),
@@ -386,46 +404,46 @@ class Starboard(commands.Cog):
         )
         await ctx.send(embed=embed)
         mod_logger.info(
-            f"Clownboard set to #{channel.name} (threshold {threshold}) "
+            f"Sobboard set to #{channel.name} (threshold {threshold}) "
             f"in {ctx.guild.name} by {ctx.author}"
         )
 
-    @clownboard_group.command(name="disable", description="Disable the clownboard")
+    @sobboard_group.command(name="disable", description="Disable the sobboard")
     @commands.has_permissions(administrator=True)
     async def clown_disable(self, ctx: commands.Context):
-        await self.bot.db.set_clownboard_channel(ctx.guild.id, None, DEFAULT_THRESHOLD)
+        await self.bot.db.set_sobboard_channel(ctx.guild.id, None, DEFAULT_THRESHOLD)
         await self.bot.cache.invalidate_guild_config(ctx.guild.id)
 
         embed = discord.Embed(
-            title="🤡 Clownboard Disabled",
-            description="The clownboard has been turned off.",
+            title="<:androidcry:1424405864428732526> Sobboard Disabled",
+            description="The sobboard has been turned off.",
             color=discord.Color.red(),
             timestamp=datetime.utcnow(),
         )
         await ctx.send(embed=embed)
-        mod_logger.info(f"Clownboard disabled in {ctx.guild.name} by {ctx.author}")
+        mod_logger.info(f"Sobboard disabled in {ctx.guild.name} by {ctx.author}")
 
-    @clownboard_group.command(
-        name="info", description="Show current clownboard configuration"
+    @sobboard_group.command(
+        name="info", description="Show current sobboard configuration"
     )
     @commands.has_permissions(administrator=True)
     async def clown_info(self, ctx: commands.Context):
-        channel_id, threshold = await self._get_config(ctx.guild.id, "clown")
+        channel_id, threshold = await self._get_config(ctx.guild.id, "sob")
         if not channel_id:
             embed = discord.Embed(
-                title="🤡 Clownboard",
-                description="Clownboard is **disabled**. Use `/clownboard setchannel` to enable it.",
+                title="<:androidcry:1424405864428732526> Sobboard",
+                description="Sobboard is **disabled**. Use `/sobboard setchannel` to enable it.",
                 color=discord.Color.greyple(),
             )
         else:
             channel = ctx.guild.get_channel(channel_id)
             embed = discord.Embed(
-                title="🤡 Clownboard",
+                title="<:androidcry:1424405864428732526> Sobboard",
                 color=discord.Color.orange(),
                 timestamp=datetime.utcnow(),
             )
             embed.add_field(name="Channel", value=channel.mention if channel else f"<#{channel_id}> *(deleted?)*", inline=True)
-            embed.add_field(name="Threshold", value=f"{threshold} {CLOWN_EMOJI}", inline=True)
+            embed.add_field(name="Threshold", value=f"{threshold} {SOB_EMOJI}", inline=True)
         await ctx.send(embed=embed)
 
 
