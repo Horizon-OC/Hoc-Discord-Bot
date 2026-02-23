@@ -29,18 +29,18 @@ class Database:
                     log_message_edits INTEGER DEFAULT 0,
                     starboard_channel_id INTEGER DEFAULT NULL,
                     starboard_threshold INTEGER DEFAULT 3,
-                    clownboard_channel_id INTEGER DEFAULT NULL,
-                    clownboard_threshold INTEGER DEFAULT 3,
+                    sobboard_channel_id INTEGER DEFAULT NULL,
+                    sobboard_threshold INTEGER DEFAULT 3,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
 
-            # Migrate existing tables: add starboard/clownboard columns if they don't exist yet
+            # Migrate existing tables: add starboard/sobboard columns if they don't exist yet
             for col, default in [
                 ("starboard_channel_id", "NULL"),
                 ("starboard_threshold",  "3"),
-                ("clownboard_channel_id", "NULL"),
-                ("clownboard_threshold",  "3"),
+                ("sobboard_channel_id", "NULL"),
+                ("sobboard_threshold",  "3"),
             ]:
                 try:
                     await db.execute(
@@ -158,7 +158,7 @@ class Database:
             await db.commit()
 
     # ──────────────────────────────────────────────────────────────────
-    # Starboard / Clownboard
+    # Starboard / Sobboard
     # ──────────────────────────────────────────────────────────────────
 
     async def set_starboard_channel(
@@ -178,18 +178,18 @@ class Database:
             )
             await db.commit()
 
-    async def set_clownboard_channel(
+    async def set_sobboard_channel(
         self, guild_id: int, channel_id: Optional[int], threshold: int = 3
     ):
-        """Set (or clear) the clownboard channel and threshold for a guild."""
+        """Set (or clear) the sobboard channel and threshold for a guild."""
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute(
                 """
-                INSERT INTO guild_config (guild_id, clownboard_channel_id, clownboard_threshold)
+                INSERT INTO guild_config (guild_id, sobboard_channel_id, sobboard_threshold)
                 VALUES (?, ?, ?)
                 ON CONFLICT(guild_id) DO UPDATE SET
-                    clownboard_channel_id = excluded.clownboard_channel_id,
-                    clownboard_threshold  = excluded.clownboard_threshold
+                    sobboard_channel_id = excluded.sobboard_channel_id,
+                    sobboard_threshold  = excluded.sobboard_threshold
                 """,
                 (guild_id, channel_id, threshold),
             )
