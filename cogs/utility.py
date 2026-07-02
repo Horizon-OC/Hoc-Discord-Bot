@@ -1,21 +1,98 @@
+import asyncio
+import re
 import discord
 from discord.ext import commands
 from discord import app_commands
 from typing import Optional
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 import psutil
 import os
+import socket
+import struct
+import time
 
 from utils.checks import is_moderator, moderator_check
 from utils.embeds import EmbedFactory
 from config import Config
+
+NTP_CACHE_TTL = 30  # seconds
 
 class Utility(commands.Cog):
     """Utility commands for server management"""
     
     def __init__(self, bot):
         self.bot = bot
-    
+        self._ntp_cache: Optional[datetime] = None
+        self._ntp_cache_time: float = 0.0
+
+    def _fetch_ntp_blocking(self) -> Optional[datetime]:
+        """Blocking NTP fetch — run this in a thread, not the event loop."""
+        ntp_packet = b'\x1b' + 47 * b'\x00'
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+                sock.settimeout(3)
+                sock.sendto(ntp_packet, ("pool.ntp.org", 123))
+                data, _ = sock.recvfrom(1024)
+        except OSError:
+            return None
+
+        if len(data) < 48:
+            return None
+
+        ntp_seconds, _ = struct.unpack('!II', data[40:48])
+        unix_seconds = ntp_seconds - 2208988800
+        return datetime.fromtimestamp(unix_seconds, tz=timezone.utc)
+
+    async def _get_ntp_time(self) -> Optional[datetime]:
+        """Return the current UTC time from NTP, using a 30-second cache."""
+        now = time.monotonic()
+        if self._ntp_cache is not None and now - self._ntp_cache_time < NTP_CACHE_TTL:
+            return self._ntp_cache
+
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(None, self._fetch_ntp_blocking)
+        if result is not None:
+            self._ntp_cache = result
+            self._ntp_cache_time = now
+        return result
+
+    @staticmethod
+    def _parse_tz_offset(arg: str):
+        """
+        Parse a loose timezone/offset string and return a timezone object.
+
+        Accepted formats (case-insensitive):
+          utc±H, utc±H:MM, gmt±H, gmt±H:MM
+          ±H, ±H:MM, ±HH, ±HH:MM
+          Plain digits are treated as a positive offset (e.g. "4" → UTC+4).
+
+        Returns a datetime.timezone on success, or None if unparseable.
+        """
+        s = arg.strip().upper()
+
+        # Strip optional UTC/GMT prefix
+        s = re.sub(r'^(UTC|GMT)', '', s)
+
+        # "0" and "-0" → UTC
+        if s in ('', '0', '-0', '+0', '00', '-00', '+00'):
+            return timezone.utc
+
+        # Match optional sign, hours, optional :minutes
+        m = re.fullmatch(r'([+-]?)(\d{1,2})(?::(\d{2}))?', s)
+        if not m:
+            return None
+
+        sign_str, hours_str, minutes_str = m.groups()
+        hours = int(hours_str)
+        minutes = int(minutes_str) if minutes_str else 0
+
+        if hours > 14 or minutes >= 60:
+            return None
+
+        sign = -1 if sign_str == '-' else 1
+        offset = timedelta(hours=sign * hours, minutes=sign * minutes)
+        return timezone(offset)
+
     @commands.hybrid_command(name="ping", description="Check bot latency")
     async def ping(self, ctx: commands.Context):
         """Check the bot's latency"""
@@ -36,6 +113,76 @@ class Utility(commands.Cog):
         embed = EmbedFactory.user_info(member)
         await ctx.send(embed=embed)
     
+    @commands.hybrid_command(name="time", description="Get the current time from the NTP pool")
+    @app_commands.describe(timezone_arg="Optional timezone offset, e.g. UTC-4, GMT+5:30, -4, 4")
+    async def current_time(self, ctx: commands.Context, *, timezone_arg: Optional[str] = None):
+        """Fetch the current UTC time from the NTP pool (cached for 30 s).
+
+        Optionally accepts a timezone offset to convert the result:
+          ?time          → displays UTC
+          ?time utc-4   → displays UTC-4
+          ?time gmt+5:30 → displays UTC+5:30
+          ?time -4       → displays UTC-4
+          ?time 4        → displays UTC+4
+        """
+        ntp_time = await self._get_ntp_time()
+
+        if ntp_time is None:
+            embed = EmbedFactory.error(
+                title="Time Lookup Failed",
+                description="Could not reach the NTP pool right now. Please try again in a moment."
+            )
+            await ctx.send(embed=embed)
+            return
+
+        # Adjust the cached timestamp to account for time elapsed since it was fetched
+        elapsed = time.monotonic() - self._ntp_cache_time
+        utc_now = ntp_time.fromtimestamp(ntp_time.timestamp() + elapsed, tz=timezone.utc)
+
+        # --- Timezone conversion ---
+        tz = timezone.utc
+        tz_label = "UTC"
+        if timezone_arg is not None:
+            parsed = self._parse_tz_offset(timezone_arg)
+            if parsed is None:
+                embed = EmbedFactory.error(
+                    title="Invalid Timezone",
+                    description=(
+                        f"Could not parse `{timezone_arg}` as a timezone offset.\n"
+                        "Try formats like: `UTC-4`, `GMT+5:30`, `-4`, `4`."
+                    )
+                )
+                await ctx.send(embed=embed)
+                return
+            tz = parsed
+            offset = tz.utcoffset(None)
+            total_minutes = int(offset.total_seconds() // 60)
+            hours, mins = divmod(abs(total_minutes), 60)
+            sign = '+' if total_minutes >= 0 else '-'
+            tz_label = f"UTC{sign}{hours}" + (f":{mins:02d}" if mins else "")
+
+        now = utc_now.astimezone(tz)
+        unix_timestamp = int(now.timestamp())
+        discord_timestamp = f"<t:{unix_timestamp}:f>"
+        display_time = now.strftime("%H:%M:%S")
+        display_date = now.strftime("%m-%d-%Y")
+
+        cached = elapsed > 0.5
+        footer = f"Source: pool.ntp.org{' · Cached result' if cached else ''}"
+
+        embed = discord.Embed(
+            title="🕒 Current Time",
+            description="Time fetched from the NTP pool.",
+            color=Config.EMBED_COLOR,
+            timestamp=utc_now
+        )
+        embed.add_field(name="Unix Timestamp", value=str(unix_timestamp), inline=True)
+        embed.add_field(name="Discord Time", value=discord_timestamp, inline=True)
+        embed.add_field(name=f"Time ({tz_label})", value=f"{display_time}\n{display_date}", inline=False)
+        embed.set_footer(text=footer)
+
+        await ctx.send(embed=embed)
+
     @commands.hybrid_command(name="serverinfo", description="Get information about the server")
     async def serverinfo(self, ctx: commands.Context):
         """Get information about the server"""
